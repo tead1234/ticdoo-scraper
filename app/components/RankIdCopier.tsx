@@ -76,7 +76,9 @@ export default function RankIdCopier() {
       }
 
       // 4. 랭크 순위, 헤더([a1]) 모두 제외하고 오직 영문 아이디만 추출
-      const textToCopy = leagueUsers.map((user: any) => user.unique_id).join('\n');
+      const header = `[${targetLeague.toUpperCase()} 리그]\n`;
+      const userIds = leagueUsers.map((user: any) => user.unique_id).join('\n');
+      const textToCopy = header + userIds;
 
       // 5. 클립보드 복사 실행
       if (navigator.clipboard && window.isSecureContext) {
