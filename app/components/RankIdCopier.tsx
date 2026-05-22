@@ -3,9 +3,11 @@
 import { useState } from 'react';
 
 export default function RankIdCopier() {
-  const [isLoading, setIsLoading] = useState(false);
+  // 💡 [핵심 추가] API에서 한 번 불러온 데이터를 저장해두는 상태 (매번 로딩 방지)
+  const [cachedData, setCachedData] = useState<any[] | null>(null);
+  // 현재 어떤 버튼이 로딩 중인지 식별하는 상태
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
 
-  // 1. Fallback 복사 함수
   const fallbackCopyTextToClipboard = (text: string) => {
     const textArea = document.createElement("textarea");
     textArea.value = text;
@@ -16,112 +18,122 @@ export default function RankIdCopier() {
     textArea.select();
     try {
       document.execCommand('copy');
-      alert('클립보드에 복사 완료!');
+      // alert는 메인 함수에서 띄우므로 여기서는 생략하거나 폴백용 알림만 남깁니다.
     } catch (err) {
       alert('클립보드 복사 지원 불가 브라우저');
     }
     document.body.removeChild(textArea);
   };
 
-  // 2. 메인 복사 실행 함수
-  const handleCopyIds = async () => {
-    setIsLoading(true);
+  // 리그 정보 매핑
+  const classMap: Record<number, string> = {
+    2000: 'a1', 1900: 'a2', 1800: 'a3',
+    1500: 'b1', 1400: 'b2', 1300: 'b3', 1200: 'b4', 1100: 'b5',
+    1000: 'c1', 900: 'c2', 800: 'c3', 700: 'c4', 600: 'c5',
+    500: 'd1',  400: 'd2',  300: 'd3',  200: 'd4',  100: 'd5'
+  };
+
+  const orderedKeys = [
+    'a1', 'a2', 'a3',
+    'b1', 'b2', 'b3', 'b4', 'b5',
+    'c1', 'c2', 'c3', 'c4', 'c5',
+    'd1', 'd2', 'd3', 'd4', 'd5'
+  ];
+
+  // 💡 [핵심 변경] 특정 리그(targetLeague)만 받아서 처리하는 함수
+  const handleCopyLeague = async (targetLeague: string) => {
+    setLoadingKey(targetLeague);
 
     try {
-      const res = await fetch('/api/ranks');
-      const json = await res.json();
+      let dataToProcess = cachedData;
 
-      if (!json.success) {
-        throw new Error(json.message);
+      // 1. 캐싱된 데이터가 없으면 최초 1회 API 호출
+      if (!dataToProcess) {
+        const res = await fetch('/api/ranks');
+        const json = await res.json();
+
+        if (!json.success) {
+          throw new Error(json.message);
+        }
+        
+        dataToProcess = json.data;
+        setCachedData(dataToProcess); // 다음 버튼 클릭을 위해 전체 데이터 임시 저장
       }
 
-      const rawData = json.data; // API에서 받아온 원본 전체 유저 배열
-      console.log('원본 데이터:', rawData); // 원본 데이터 확인용 로그
-      // 리그 등급별 매핑 표 (class_type -> 리그 키)
-      const classMap: Record<number, string> = {
-        2000: 'a1', 1900: 'a2', 1800: 'a3',
-        1500: 'b1', 1400: 'b2', 1300: 'b3', 1200: 'b4', 1100: 'b5',
-        1000: 'c1', 900: 'c2', 800: 'c3', 700: 'c4', 600: 'c5',
-        500: 'd1',  400: 'd2',  300: 'd3',  200: 'd4',  100: 'd5'
-      };
-
-      // 💡 [핵심 변경] 각 리그별로 1~99등 유저들을 배열로 담을 거대한 바구니 준비
-      const leagueGroups: Record<string, any[]> = {
-        'a1': [], 'a2': [], 'a3': [],
-        'b1': [], 'b2': [], 'b3': [], 'b4': [], 'b5': [],
-        'c1': [], 'c2': [], 'c3': [], 'c4': [], 'c5': [],
-        'd1': [], 'd2': [], 'd3': [], 'd4': [], 'd5': []
-      };
-
-      // 💡 전체 데이터를 돌면서 유저를 해당 리그 배열에 차곡차곡 쌓기 (1등~99등만)
-      rawData.forEach((item: any) => {
-        const leagueKey = classMap[item.class_type];
-        
-        // 매핑 표에 존재하고, 등수가 1등부터 99등 사이인 경우에만 수집
-        if (leagueKey && item.rank >= 1 && item.rank <= 99) {
-          
-          // [핵심 해결책] 만약 해당 리그의 바구니(배열)가 아직 없다면 새로 만들어줍니다.
-          if (!leagueGroups[leagueKey]) {
-            leagueGroups[leagueKey] = [];
-          }
-          
-          // 이제 안전하게 데이터를 밀어 넣습니다.
-          leagueGroups[leagueKey].push(item);
-        }
+      // 2. 누른 버튼(targetLeague)에 해당하는 유저만 필터링
+      const leagueUsers = dataToProcess!.filter((item: any) => {
+        const currentLeagueKey = classMap[item.class_type];
+        // 선택한 리그와 일치하고, 1~99등 사이인 사람만 골라냅니다.
+        return currentLeagueKey === targetLeague && item.rank >= 1 && item.rank <= 99;
       });
 
-      // 출력을 원하는 리그 순서 정의
-      const orderedKeys = [
-        'a1', 'a2', 'a3',
-        'b1', 'b2', 'b3', 'b4', 'b5',
-        'c1', 'c2', 'c3', 'c4', 'c5',
-        'd1', 'd2', 'd3', 'd4', 'd5'
-      ];
+      // 3. 랭크 순으로 정렬
+      leagueUsers.sort((a: any, b: any) => a.rank - b.rank);
 
-      // 💡 클립보드용 텍스트 조립 (리그별로 대가리 치고 그 아래 1~99등 나열)
-      let textToCopy = '';
+      if (leagueUsers.length === 0) {
+        alert(`${targetLeague} 리그에 해당하는 데이터가 없습니다.`);
+        return;
+      }
 
-      orderedKeys.forEach((key) => {
-        // 혹시 원본 데이터의 순서가 꼬여있을 수 있으므로 각 리그 안에서 등수(rank)순으로 재정렬
-        const sortedUsers = leagueGroups[key].sort((a, b) => a.rank - b.rank);
+      // 4. 랭크 순위, 헤더([a1]) 모두 제외하고 오직 영문 아이디만 추출
+      const textToCopy = leagueUsers.map((user: any) => user.unique_id).join('\n');
 
-        textToCopy += `[${key}]\n`;
-        
-        if (sortedUsers.length === 0) {
-          textToCopy += '데이터 없음\n';
-        } else {
-          sortedUsers.forEach((user) => {
-            textToCopy += `${user.rank}위: ${user.unique_id}\n`;
-          });
-        }
-        textToCopy += '\n'; // 리그와 리그 사이 구분을 위한 빈 줄 추가
-      });
-
-      // 마지막 불필요한 공백 제거
-      textToCopy = textToCopy.trim();
-
-      // 3. 클립보드 복사 실행
+      // 5. 클립보드 복사 실행
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(textToCopy);
-        alert('모든 리그의 1등부터 99등까지의 아이디가 복사되었습니다!');
+        alert(`[${targetLeague.toUpperCase()}] 리그 아이디 복사 완료!`);
       } else {
         fallbackCopyTextToClipboard(textToCopy);
+        alert(`[${targetLeague.toUpperCase()}] 리그 아이디 복사 완료! (호환 모드)`);
       }
 
     } catch (error) {
       console.error('데이터 처리 중 오류 발생:', error);
       alert('데이터를 가져오는 중 오류가 발생했습니다.');
     } finally {
-      setIsLoading(false);
+      setLoadingKey(null);
     }
   };
 
-  // 4. 화면 렌더링
+  // 💡 [화면 변경] 버튼을 리그별로 Grid 형태로 깔끔하게 배치
   return (
-    <div style={{ padding: '20px' }}>
-      <button onClick={handleCopyIds} disabled={isLoading}>
-        {isLoading ? '가져오는 중...' : '전체 랭크 아이디 복사'}
-      </button>
+    <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto' }}>
+      <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>틱두 리그별 아이디 복사기</h2>
+      
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))',
+        gap: '12px'
+      }}>
+        {orderedKeys.map((key) => (
+          <button
+            key={key}
+            onClick={() => handleCopyLeague(key)}
+            // 데이터를 불러오는 중에는 다른 버튼을 누르지 못하도록 방지
+            disabled={loadingKey !== null} 
+            style={{
+              padding: '12px',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              cursor: loadingKey !== null ? 'wait' : 'pointer',
+              backgroundColor: loadingKey === key ? '#ccc' : '#0070f3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              transition: 'background-color 0.2s'
+            }}
+          >
+            {loadingKey === key ? '...' : key.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* 캐싱 상태를 사용자에게 알려주는 안내문 */}
+      {cachedData && (
+        <div style={{ marginTop: '20px', textAlign: 'center', fontSize: '13px', color: '#666' }}>
+          ✅ 데이터를 성공적으로 불러왔습니다. 이제 다른 버튼은 즉시 복사됩니다.
+        </div>
+      )}
     </div>
   );
 }
