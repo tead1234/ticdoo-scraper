@@ -1,8 +1,9 @@
-FROM mcr.microsoft.com/playwright/node:22-noble
+FROM node:22
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci && npx playwright install --with-deps chromium
+
 COPY . .
 RUN npm run build
 
