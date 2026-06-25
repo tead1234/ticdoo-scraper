@@ -25,36 +25,61 @@ const copyText = (text: string) => {
 
 const fmt = (ms: number) => { const s = Math.ceil(ms / 1000); return `${Math.floor(s / 60)}분 ${s % 60}초`; };
 
+type Status = 'idle' | 'loading' | 'locked';
+
 export default function RankIdCopier() {
+  const [status, setStatus] = useState<Status>('idle');
   const [cache, setCache] = useState<Record<number, any> | null>(null);
-  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [lockedUntil, setLockedUntil] = useState(0);
   const [remaining, setRemaining] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const applyResult = (json: any) => {
+    setCache(json.data);
+    setLockedUntil(json.lockedUntil);
+    setRemaining(json.lockedUntil - Date.now());
+    setStatus('locked');
+  };
+
+  // 페이지 로드 시 서버 상태 확인
   useEffect(() => {
-    if (!expiresAt) return;
+    fetch('/api/ranks/all')
+      .then(r => r.json())
+      .then(async (json) => {
+        if (json.locked && json.data) {
+          applyResult(json);
+        } else if (json.fetching) {
+          // 다른 사람이 이미 요청 중 — 결과 대기
+          setStatus('loading');
+          const res = await fetch('/api/ranks/all', { method: 'POST' });
+          const data = await res.json();
+          if (data.success) applyResult(data); else setStatus('idle');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // 카운트다운
+  useEffect(() => {
+    if (status !== 'locked') return;
     const id = setInterval(() => {
-      const rem = Math.max(0, expiresAt - Date.now());
+      const rem = Math.max(0, lockedUntil - Date.now());
       setRemaining(rem);
-      if (rem === 0) { setCache(null); setExpiresAt(null); }
+      if (rem === 0) { setCache(null); setLockedUntil(0); setStatus('idle'); }
     }, 1000);
     return () => clearInterval(id);
-  }, [expiresAt]);
+  }, [status, lockedUntil]);
 
   const loadAll = async () => {
-    setIsLoading(true);
+    setStatus('loading');
     try {
-      const res = await fetch('/api/ranks/all');
+      const res = await fetch('/api/ranks/all', { method: 'POST' });
       const json = await res.json();
       if (!json.success) throw new Error(json.message);
-      setCache(json.data);
-      setExpiresAt(json.expiresAt);
-      setRemaining(json.expiresAt - Date.now());
+      applyResult(json);
     } catch {
       alert('데이터를 불러오는 중 오류가 발생했습니다.');
-    } finally {
-      setIsLoading(false);
+      setStatus('idle');
     }
   };
 
@@ -66,13 +91,13 @@ export default function RankIdCopier() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  if (!cache) return (
+  if (status !== 'locked') return (
     <div style={{ textAlign: 'center', padding: '20px' }}>
       <button
-        onClick={loadAll} disabled={isLoading}
-        style={{ padding: '14px 32px', fontSize: '16px', fontWeight: 'bold', backgroundColor: '#0070f3', color: 'white', border: 'none', borderRadius: '8px', cursor: isLoading ? 'wait' : 'pointer' }}
+        onClick={loadAll} disabled={status === 'loading'}
+        style={{ padding: '14px 32px', fontSize: '16px', fontWeight: 'bold', backgroundColor: '#0070f3', color: 'white', border: 'none', borderRadius: '8px', cursor: status === 'loading' ? 'wait' : 'pointer' }}
       >
-        {isLoading ? '전체 데이터 불러오는 중...' : '전체 데이터 불러오기'}
+        {status === 'loading' ? '전체 데이터 불러오는 중...' : '전체 데이터 불러오기'}
       </button>
     </div>
   );
@@ -80,7 +105,7 @@ export default function RankIdCopier() {
   return (
     <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto' }}>
       <p style={{ textAlign: 'center', color: '#888', marginBottom: '16px', fontSize: '14px' }}>
-        캐시 만료까지 <strong style={{ color: remaining < 30000 ? '#ef4444' : '#10b981' }}>{fmt(remaining)}</strong> 남음
+        재요청까지 <strong style={{ color: remaining < 30000 ? '#ef4444' : '#10b981' }}>{fmt(remaining)}</strong> 남음
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '12px' }}>
         {Object.keys(CLASS_MAP).map((key) => (

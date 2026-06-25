@@ -2,7 +2,7 @@ FROM node:22
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci && npx playwright install --with-deps chromium
+RUN npm install && npx playwright install --with-deps chromium
 
 COPY . .
 RUN npm run build

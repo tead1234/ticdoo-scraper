@@ -5,9 +5,10 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const LEAGUE_TYPES = [2000, 1900, 1800, 1500, 1400, 1300, 1200, 1100, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100];
-const TTL = 3 * 60 * 1000;
+const COOLDOWN = 5 * 60 * 1000;
 
-let cached: { data: any; expiresAt: number } | null = null;
+let cached: { data: any } | null = null;
+let lockedUntil = 0;
 let pending: Promise<any> | null = null;
 
 async function fetchAll() {
@@ -26,18 +27,34 @@ async function fetchAll() {
   }
 }
 
+// 페이지 로드 시 상태 확인용 — 페치 유발 없음
 export async function GET() {
-  if (cached && Date.now() < cached.expiresAt)
-    return NextResponse.json({ success: true, data: cached.data, expiresAt: cached.expiresAt });
+  const now = Date.now();
+  if (cached && now < lockedUntil)
+    return NextResponse.json({ success: true, data: cached.data, lockedUntil, locked: true, fetching: false });
+  if (pending)
+    return NextResponse.json({ success: true, data: null, lockedUntil, locked: true, fetching: true });
+  return NextResponse.json({ success: true, data: null, lockedUntil: 0, locked: false, fetching: false });
+}
 
-  if (!pending)
+// 버튼 클릭 시 — 잠금 중이면 캐시 반환, 아니면 페치 시작 (동시 요청은 대기 후 동일 결과 반환)
+export async function POST() {
+  const now = Date.now();
+
+  if (cached && now < lockedUntil)
+    return NextResponse.json({ success: true, data: cached.data, lockedUntil, locked: true });
+
+  if (!pending) {
+    lockedUntil = now + COOLDOWN;
     pending = fetchAll()
-      .then((data) => { cached = { data, expiresAt: Date.now() + TTL }; })
+      .then((data) => { cached = { data }; return data; })
+      .catch((e) => { lockedUntil = 0; throw e; })
       .finally(() => { pending = null; });
+  }
 
   try {
     await pending;
-    return NextResponse.json({ success: true, data: cached!.data, expiresAt: cached!.expiresAt });
+    return NextResponse.json({ success: true, data: cached!.data, lockedUntil, locked: false });
   } catch (error: unknown) {
     return NextResponse.json({ success: false, message: String(error) }, { status: 500 });
   }
