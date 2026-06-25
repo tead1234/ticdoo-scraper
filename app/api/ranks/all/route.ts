@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import chromium from '@sparticuz/chromium';
-import { chromium as playwright } from 'playwright-core';
+import { chromium } from 'playwright';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -12,11 +11,7 @@ let cached: { data: any; expiresAt: number } | null = null;
 let pending: Promise<any> | null = null;
 
 async function fetchAll() {
-  const browser = await playwright.launch({
-    args: chromium.args,
-    executablePath: process.env.CHROMIUM_PATH ?? await chromium.executablePath(),
-    headless: true,
-  });
+  const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
     await page.goto('https://tikdo.kr/', { waitUntil: 'domcontentloaded' });
